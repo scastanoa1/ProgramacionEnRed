@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <arpa/inet.h>
+#include <signal.h>
 
 #define LENGTH 2048
 
@@ -41,7 +42,7 @@ void send_msg_handler() {
         if (strcmp(message, "exit") == 0) {
             break;
         } else {
-            sprintf(buffer, "%s: %s\n", name, message);
+            snprintf(buffer, sizeof(buffer), "%s: %s\n", name, message);
             send(sockfd, buffer, strlen(buffer), 0);
         }
 
