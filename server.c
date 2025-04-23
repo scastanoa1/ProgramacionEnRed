@@ -21,6 +21,9 @@ typedef struct {
 client_t *clients[MAX_CLIENTS];
 pthread_mutex_t clients_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+// Archivo de log
+FILE *log_file;
+
 void trim_newline(char *str) {
     int len = strlen(str);
     if (str[len - 1] == '\n')
@@ -29,7 +32,7 @@ void trim_newline(char *str) {
 
 void add_client(client_t *cl) {
     pthread_mutex_lock(&clients_mutex);
-    for(int i=0; i < MAX_CLIENTS; ++i){
+    for(int i = 0; i < MAX_CLIENTS; ++i){
         if(!clients[i]){
             clients[i] = cl;
             break;
@@ -40,7 +43,7 @@ void add_client(client_t *cl) {
 
 void remove_client(int uid) {
     pthread_mutex_lock(&clients_mutex);
-    for(int i=0; i < MAX_CLIENTS; ++i){
+    for(int i = 0; i < MAX_CLIENTS; ++i){
         if(clients[i]){
             if(clients[i]->uid == uid){
                 clients[i] = NULL;
@@ -53,7 +56,7 @@ void remove_client(int uid) {
 
 void send_message(char *s, int uid) {
     pthread_mutex_lock(&clients_mutex);
-    for(int i=0; i<MAX_CLIENTS; ++i){
+    for(int i = 0; i < MAX_CLIENTS; ++i){
         if(clients[i]){
             if(clients[i]->uid != uid){
                 write(clients[i]->sockfd, s, strlen(s));
@@ -70,15 +73,20 @@ void *handle_client(void *arg) {
 
     client_t *cli = (client_t *)arg;
 
-    // Nombre de usuario
-    if(recv(cli->sockfd, name, 32, 0) <= 0 || strlen(name) < 2 || strlen(name) >= 32-1){
+    // Recibir nombre de usuario
+    if(recv(cli->sockfd, name, 32, 0) <= 0 || strlen(name) < 2 || strlen(name) >= 31){
         printf("Cliente sin nombre. Desconectando.\n");
         leave_flag = 1;
     } else {
         strcpy(cli->name, name);
+        
+        // Mensaje de bienvenida
         sprintf(buff_out, "%s se ha unido al chat.\n", cli->name);
         printf("%s", buff_out);
         send_message(buff_out, cli->uid);
+
+        fprintf(log_file, "Conexión: %s [%d]\n", cli->name, cli->uid);
+        fflush(log_file);
     }
 
     while(1){
@@ -87,15 +95,29 @@ void *handle_client(void *arg) {
         int receive = recv(cli->sockfd, buff_out, BUFFER_SZ, 0);
         if (receive > 0){
             if(strlen(buff_out) > 0){
+                // Asegurar salto de línea final
+                size_t len = strlen(buff_out);
+                if (buff_out[len - 1] != '\n') {
+                    strcat(buff_out, "\n");
+                }
+
                 send_message(buff_out, cli->uid);
                 printf("%s", buff_out);
+
+                fprintf(log_file, "Mensaje de %s: %s", cli->name, buff_out);
+                fflush(log_file);
             }
         } else if (receive == 0 || strcmp(buff_out, "exit") == 0){
             sprintf(buff_out, "%s ha salido del chat.\n", cli->name);
             printf("%s", buff_out);
             send_message(buff_out, cli->uid);
+
+            fprintf(log_file, "Desconexión: %s [%d]\n", cli->name, cli->uid);
+            fflush(log_file);
+
             leave_flag = 1;
         }
+
         bzero(buff_out, BUFFER_SZ);
     }
 
@@ -110,6 +132,13 @@ void *handle_client(void *arg) {
 int main(int argc, char **argv){
     if(argc != 2){
         fprintf(stderr, "Uso: %s <puerto>\n", argv[0]);
+        exit(EXIT_FAILURE);
+    }
+
+    // Abrir archivo de log
+    log_file = fopen("chat_server.log", "a");
+    if (!log_file) {
+        perror("No se pudo abrir el archivo de log");
         exit(EXIT_FAILURE);
     }
 
@@ -154,5 +183,6 @@ int main(int argc, char **argv){
         sleep(1);
     }
 
+    fclose(log_file);
     return 0;
 }
