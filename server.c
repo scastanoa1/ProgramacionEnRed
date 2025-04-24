@@ -21,7 +21,6 @@ typedef struct {
 client_t *clients[MAX_CLIENTS];
 pthread_mutex_t clients_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-// Archivo de log
 FILE *log_file;
 
 void trim_newline(char *str) {
@@ -68,26 +67,9 @@ void send_message(char *s, int uid) {
 
 void *handle_client(void *arg) {
     char buff_out[BUFFER_SZ];
-    char name[32];
     int leave_flag = 0;
 
     client_t *cli = (client_t *)arg;
-
-    // Recibir nombre de usuario
-    if(recv(cli->sockfd, name, 32, 0) <= 0 || strlen(name) < 2 || strlen(name) >= 31){
-        printf("Cliente sin nombre. Desconectando.\n");
-        leave_flag = 1;
-    } else {
-        strcpy(cli->name, name);
-        
-        // Mensaje de bienvenida
-        sprintf(buff_out, "%s se ha unido al chat.\n", cli->name);
-        printf("%s", buff_out);
-        send_message(buff_out, cli->uid);
-
-        fprintf(log_file, "Conexión: %s [%d]\n", cli->name, cli->uid);
-        fflush(log_file);
-    }
 
     while(1){
         if (leave_flag) break;
@@ -95,7 +77,7 @@ void *handle_client(void *arg) {
         int receive = recv(cli->sockfd, buff_out, BUFFER_SZ, 0);
         if (receive > 0){
             if(strlen(buff_out) > 0){
-                // Asegurar salto de línea final
+                // Asegurar salto de línea
                 size_t len = strlen(buff_out);
                 if (buff_out[len - 1] != '\n') {
                     strcat(buff_out, "\n");
@@ -135,7 +117,6 @@ int main(int argc, char **argv){
         exit(EXIT_FAILURE);
     }
 
-    // Abrir archivo de log
     log_file = fopen("chat_server.log", "a");
     if (!log_file) {
         perror("No se pudo abrir el archivo de log");
@@ -157,7 +138,6 @@ int main(int argc, char **argv){
     serv_addr.sin_port = htons(port);
 
     bind(listenfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr));
-
     listen(listenfd, 10);
 
     printf("=== Servidor de chat iniciado en el puerto %d ===\n", port);
@@ -177,7 +157,27 @@ int main(int argc, char **argv){
         cli->sockfd = connfd;
         cli->uid = uid++;
 
+        // Recibir nombre antes de crear hilo
+        char name_buffer[32];
+        if (recv(connfd, name_buffer, 32, 0) <= 0 || strlen(name_buffer) < 2 || strlen(name_buffer) >= 31) {
+            printf("Cliente sin nombre. Conexión rechazada.\n");
+            close(connfd);
+            free(cli);
+            continue;
+        }
+        strcpy(cli->name, name_buffer);
+
         add_client(cli);
+
+        // Notificar ingreso
+        char join_msg[BUFFER_SZ];
+        sprintf(join_msg, "%s se ha unido al chat.\n", cli->name);
+        send_message(join_msg, cli->uid);
+        printf("%s", join_msg);
+
+        fprintf(log_file, "Conexión: %s [%d]\n", cli->name, cli->uid);
+        fflush(log_file);
+
         pthread_create(&tid, NULL, &handle_client, (void*)cli);
 
         sleep(1);
