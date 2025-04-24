@@ -2,9 +2,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <signal.h>
 #include <pthread.h>
 #include <arpa/inet.h>
-#include <signal.h>
 
 #define LENGTH 2048
 
@@ -41,13 +41,17 @@ void send_msg_handler() {
 
         if (strcmp(message, "exit") == 0) {
             break;
-        } else {
-            snprintf(buffer, sizeof(buffer), "%s: %s\n", name, message);
-            send(sockfd, buffer, strlen(buffer), 0);
         }
 
-        bzero(message, LENGTH);
-        bzero(buffer, LENGTH + 32);
+        if (strlen(message) == 0) {
+            continue; // Ignorar mensajes vacíos
+        }
+
+        snprintf(buffer, sizeof(buffer), "%s: %s\n", name, message);
+        send(sockfd, buffer, strlen(buffer), 0);
+
+        memset(message, 0, LENGTH);
+        memset(buffer, 0, LENGTH + 32);
     }
 
     catch_ctrl_c_and_exit(2);
@@ -58,12 +62,12 @@ void recv_msg_handler() {
     while (1) {
         int receive = recv(sockfd, message, LENGTH, 0);
         if (receive > 0) {
-            printf("\r%s", message);
+            printf("\r%s\n", message);  // Agregado \n para evitar pegado de líneas
             str_overwrite_stdout();
         } else if (receive == 0) {
             break;
         }
-        memset(message, 0, sizeof(message));
+        memset(message, 0, LENGTH);
     }
 }
 
@@ -94,14 +98,12 @@ int main(int argc, char **argv){
     server_addr.sin_port = htons(port);
     server_addr.sin_addr.s_addr = inet_addr(ip);
 
-    // Conectar al servidor
     int err = connect(sockfd, (struct sockaddr*)&server_addr, sizeof(server_addr));
     if (err == -1) {
         printf("Error al conectar con el servidor.\n");
         return EXIT_FAILURE;
     }
 
-    // Enviar nombre
     send(sockfd, name, 32, 0);
 
     printf("=== BIENVENIDO AL CHAT ===\n");
